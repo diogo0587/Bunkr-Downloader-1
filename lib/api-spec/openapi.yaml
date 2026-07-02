@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: bunkr
+    description: Bunkr download operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,88 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /resolve:
+    post:
+      operationId: resolveUrl
+      tags: [bunkr]
+      summary: Resolve a Bunkr URL to a list of downloadable files
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveInput"
+      responses:
+        "200":
+          description: Resolved file list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveResult"
+        "400":
+          description: Invalid URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Could not resolve URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /jobs:
+    post:
+      operationId: createJob
+      tags: [bunkr]
+      summary: Create a batch download job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobInput"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /jobs/{jobId}:
+    get:
+      operationId: getJob
+      tags: [bunkr]
+      summary: Get job status
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +118,95 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    ResolveInput:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          description: Bunkr album or file URL
+
+    BunkrFile:
+      type: object
+      required:
+        - name
+        - url
+        - type
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        size:
+          type: ["integer", "null"]
+          description: File size in bytes
+        type:
+          type: string
+          description: File type (image, video, other)
+        thumbnailUrl:
+          type: ["string", "null"]
+          description: Thumbnail URL for images/videos
+        cdnUrl:
+          type: ["string", "null"]
+          description: Direct CDN download URL
+
+    ResolveResult:
+      type: object
+      required:
+        - files
+      properties:
+        albumName:
+          type: ["string", "null"]
+        totalFiles:
+          type: integer
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/BunkrFile"
+
+    JobInput:
+      type: object
+      required:
+        - files
+        - archiveName
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/BunkrFile"
+        archiveName:
+          type: string
+
+    Job:
+      type: object
+      required:
+        - id
+        - status
+        - totalFiles
+        - processedFiles
+        - archiveName
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, done, error]
+        totalFiles:
+          type: integer
+        processedFiles:
+          type: integer
+        archiveName:
+          type: string
+        error:
+          type: ["string", "null"]
+        downloadUrl:
+          type: ["string", "null"]
