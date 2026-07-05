@@ -117,11 +117,19 @@ function extractCdnUrl($: cheerio.CheerioAPI, pageUrl: string): string | null {
   });
   if (downloadHref) return downloadHref;
 
-  // <a href="...cdn...">
+  // Bunkr "Download" button link (dl.bunkr.*)
+  let dlHref: string | null = null;
+  $("a[href^='https://dl.bunkr.']").each((_, el) => {
+    const href = $(el).attr("href");
+    if (href && !dlHref) dlHref = href;
+  });
+  if (dlHref) return dlHref;
+
+  // <a href="...cdn..."> or href with download domains
   let cdnHref: string | null = null;
   $("a[href]").each((_, el) => {
     const href = $(el).attr("href") ?? "";
-    if (!cdnHref && /cdn\d*\./i.test(href)) cdnHref = href;
+    if (!cdnHref && (/cdn\d*\./i.test(href) || /\/file\/\d+$/i.test(href))) cdnHref = href;
   });
   if (cdnHref) return cdnHref;
 

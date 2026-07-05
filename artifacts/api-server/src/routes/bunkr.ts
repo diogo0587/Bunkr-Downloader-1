@@ -3,9 +3,54 @@ import os from "os";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
+import * as cheerio from "cheerio";
 import { resolveUrl, resolveDownload, CDN_HEADERS, type BunkrFile } from "../lib/bunkr.js";
 import { ResolveUrlBody, CreateJobBody, GetJobParams } from "@workspace/api-zod";
 import { logger } from "../lib/logger.js";
+import { pool } from "@workspace/db";
+
+// ─── balalbums.st search scraper ─────────────────────────────────────────────
+
+interface SearchItem {
+  title: string;
+  url: string;
+  thumbnailUrl: string | null;
+  source: string;
+}
+
+async function searchBalalbums(query: string, mode = "broad", page = 1): Promise<SearchItem[]> {
+  const searchUrl = `https://balalbums.st/?search=${encodeURIComponent(query)}&mode=${encodeURIComponent(mode)}&page=${page}`;
+  const html = await fetch(searchUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Accept: "text/html",
+    },
+  }).then((r) => {
+    if (!r.ok) throw new Error(`balalbums.st returned ${r.status}`);
+    return r.text();
+  });
+
+  const $ = cheerio.load(html);
+  const results: SearchItem[] = [];
+
+  $("a[href^='https://bunkr.'][target='_blank']").each((_, el) => {
+    const href = $(el).attr("href");
+    if (!href || !href.includes("/a/")) return;
+
+    const img = $(el).find("img.thumb-img, img[src]").first();
+    const thumb = img.attr("src") ?? null;
+    const alt = img.attr("alt") ?? "";
+    const title =
+      alt.trim() ||
+      $(el).find("[class*='title']").first().text().trim() ||
+      href.split("/a/").pop() ||
+      "Unknown";
+
+    results.push({ title, url: href, thumbnailUrl: thumb && !thumb.includes("bunkr.svg") ? thumb : null, source: "balalbums.st" });
+  });
+
+  return results;
+}
 
 // archiver has no bundled TS types — minimal interface for what we use
 type ArchiverInstance = {
@@ -123,7 +168,7 @@ async function processJob(job: Job): Promise<void> {
   }, 30 * 60 * 1000);
 }
 
-// POST /resolve
+// POST /resolve (with DB cache)
 router.post("/resolve", async (req, res): Promise<void> => {
   const parsed = ResolveUrlBody.safeParse(req.body);
   if (!parsed.success) {
@@ -134,13 +179,85 @@ router.post("/resolve", async (req, res): Promise<void> => {
   const { url } = parsed.data;
   req.log.info({ url }, "Resolving Bunkr URL");
 
+  // Try DB cache
+  try {
+    const cached = await pool.query(
+      "SELECT album_name, total_files, files FROM resolved_albums WHERE url = $1 LIMIT 1",
+      [url],
+    );
+    if (cached.rows.length > 0) {
+      const c = cached.rows[0];
+      req.log.info({ url }, "Resolved from DB cache");
+      res.json({ albumName: c.album_name, totalFiles: c.total_files, files: c.files });
+      return;
+    }
+  } catch (err) {
+    req.log.warn({ err }, "DB cache read failed, falling back to live resolve");
+  }
+
   try {
     const result = await resolveUrl(url);
+
+    // Store in DB
+    try {
+      await pool.query(
+        "INSERT INTO resolved_albums (url, album_name, total_files, files) VALUES ($1, $2, $3, $4) ON CONFLICT (url) DO NOTHING",
+        [url, result.albumName, result.totalFiles, JSON.stringify(result.files)],
+      );
+    } catch (err) {
+      req.log.warn({ err }, "DB cache write failed");
+    }
+
     res.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     req.log.warn({ err, url }, "Failed to resolve URL");
     res.status(422).json({ error: message });
+  }
+});
+
+// POST /search
+router.post("/search", async (req, res): Promise<void> => {
+  const query = typeof req.body?.query === "string" ? req.body.query.trim() : null;
+  const mode = typeof req.body?.mode === "string" ? req.body.mode : "broad";
+  const page = typeof req.body?.page === "number" ? Math.max(1, req.body.page) : 1;
+
+  if (!query || query.length < 2) {
+    res.status(400).json({ error: "query must be at least 2 characters" });
+    return;
+  }
+
+  // Try DB cache (5 min)
+  try {
+    const cached = await pool.query(
+      "SELECT results, fetched_at FROM search_results WHERE query = $1 AND mode = $2 AND page = $3 ORDER BY fetched_at DESC LIMIT 1",
+      [query, mode, page],
+    );
+    if (cached.rows.length > 0) {
+      const c = cached.rows[0];
+      const ageMs = Date.now() - new Date(c.fetched_at).getTime();
+      if (ageMs < 5 * 60 * 1000) {
+        res.json({ results: c.results, query, mode, page });
+        return;
+      }
+    }
+  } catch {}
+
+  try {
+    const results = await searchBalalbums(query, mode, page);
+
+    try {
+      await pool.query(
+        "INSERT INTO search_results (query, mode, page, results) VALUES ($1, $2, $3, $4)",
+        [query, mode, page, JSON.stringify(results)],
+      );
+    } catch {}
+
+    res.json({ results, query, mode, page });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    req.log.warn({ err, query }, "Search failed");
+    res.status(502).json({ error: message });
   }
 });
 

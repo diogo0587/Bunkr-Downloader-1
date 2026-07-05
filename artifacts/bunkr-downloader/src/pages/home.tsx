@@ -12,6 +12,8 @@ import {
   Terminal,
   ChevronRight,
   AlertTriangle,
+  Search,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,11 +34,24 @@ function FileTypeIcon({ type }: { type: string }) {
   return <FileIcon className="w-5 h-5 opacity-70" />;
 }
 
+interface SearchItem {
+  title: string;
+  url: string;
+  thumbnailUrl: string | null;
+  source: string;
+}
+
 export default function Home() {
   const { toast } = useToast();
   const [url, setUrl] = useState("");
   const [result, setResult] = useState<ResolveResult | null>(null);
   const [isZipping, setIsZipping] = useState(false);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<"broad" | "strict">("broad");
+  const [searchResults, setSearchResults] = useState<SearchItem[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const resolveMutation = useResolveUrl();
 
@@ -44,13 +59,12 @@ export default function Home() {
     e.preventDefault();
     if (!url.trim()) return;
     setResult(null);
+    setSearchResults(null);
 
     resolveMutation.mutate(
       { data: { url: url.trim() } },
       {
-        onSuccess: (data) => {
-          setResult(data);
-        },
+        onSuccess: (data) => setResult(data),
         onError: (err) => {
           toast({
             title: "Failed to resolve",
@@ -58,6 +72,60 @@ export default function Home() {
               err.data?.error ||
               err.message ||
               "Could not fetch files from the provided URL.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
+      toast({ title: "Search too short", description: "Type at least 2 characters." });
+      return;
+    }
+    setSearchLoading(true);
+    setSearchResults(null);
+    setResult(null);
+
+    try {
+      const resp = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: searchQuery.trim(), mode: searchMode, page: 1 }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: "Search failed" }));
+        toast({ title: "Search failed", description: err.error, variant: "destructive" });
+        return;
+      }
+      const data = await resp.json();
+      setSearchResults(data.results ?? []);
+    } catch (err) {
+      toast({
+        title: "Search error",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleSelectSearchResult = (item: SearchItem) => {
+    setUrl(item.url);
+    setSearchResults(null);
+    setSearchQuery("");
+    // Auto-resolve
+    resolveMutation.mutate(
+      { data: { url: item.url } },
+      {
+        onSuccess: (data) => setResult(data),
+        onError: (err) => {
+          toast({
+            title: "Failed to resolve album",
+            description: err.data?.error || err.message || "Could not resolve.",
             variant: "destructive",
           });
         },
@@ -133,18 +201,18 @@ export default function Home() {
             Fast, dense media retrieval.
           </h1>
           <p className="text-muted-foreground text-lg max-w-xl">
-            Paste a Bunkr album or file URL to extract direct links and bulk download contents.
+            Paste a Bunkr album URL or search the archive to find and download media.
           </p>
 
-          <form onSubmit={handleResolve} className="mt-4 flex flex-col sm:flex-row gap-3">
+          {/* URL Resolve Form */}
+          <form onSubmit={handleResolve} className="mt-2 flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <ChevronRight className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
               <Input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://bunkrr.su/a/..."
+                placeholder="https://bunkr.site/a/..."
                 className="pl-10 h-14 font-mono text-base bg-secondary/30 border-secondary-border focus-visible:ring-primary/50"
-                autoFocus
                 data-testid="input-url"
               />
             </div>
@@ -154,12 +222,38 @@ export default function Home() {
               className="h-14 px-8 font-mono font-bold text-sm tracking-widest uppercase transition-all duration-300"
               data-testid="button-resolve"
             >
-              {resolveMutation.isPending ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                "Resolve"
-              )}
+              {resolveMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Resolve"}
             </Button>
+          </form>
+
+          {/* Search Form */}
+          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search balalbums.st (online only)..."
+                className="pl-10 h-12 font-mono text-base bg-secondary/30 border-secondary-border focus-visible:ring-primary/50"
+              />
+            </div>
+            <div className="flex gap-2">
+              <select
+                value={searchMode}
+                onChange={(e) => setSearchMode(e.target.value as "broad" | "strict")}
+                className="h-12 px-3 rounded-md bg-secondary/30 border border-secondary-border text-sm font-mono"
+              >
+                <option value="broad">Broad</option>
+                <option value="strict">Strict</option>
+              </select>
+              <Button
+                type="submit"
+                disabled={searchLoading || !searchQuery.trim()}
+                className="h-12 px-6 font-mono font-bold text-sm tracking-widest uppercase"
+              >
+                {searchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Search"}
+              </Button>
+            </div>
           </form>
         </section>
 
@@ -169,14 +263,59 @@ export default function Home() {
             <div>
               <p className="font-bold font-mono text-sm uppercase">Resolution Failed</p>
               <p className="text-sm opacity-90">
-                {resolveMutation.error?.data?.error ||
-                  resolveMutation.error?.message ||
-                  "Unknown error occurred"}
+                {resolveMutation.error?.data?.error || resolveMutation.error?.message || "Unknown error occurred"}
               </p>
             </div>
           </div>
         )}
 
+        {/* Search Results */}
+        {searchResults !== null && (
+          <section className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="icon" onClick={() => setSearchResults(null)} className="shrink-0">
+                <ArrowLeft className="w-5 h-5" />
+              </Button>
+              <h2 className="text-xl font-bold font-mono text-foreground">
+                Search Results ({searchResults.length})
+              </h2>
+            </div>
+            {searchResults.length === 0 ? (
+              <p className="text-muted-foreground font-mono">No albums found for &ldquo;{searchQuery}&rdquo;.</p>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {searchResults.map((item, i) => (
+                  <button
+                    key={`${item.url}-${i}`}
+                    onClick={() => handleSelectSearchResult(item)}
+                    className="group text-left flex flex-col gap-2 p-3 rounded-xl border border-border/40 bg-card hover:bg-secondary/20 hover:border-primary/30 transition-all"
+                  >
+                    <div className="aspect-video bg-secondary/50 rounded-lg overflow-hidden relative">
+                      {item.thumbnailUrl ? (
+                        <img
+                          src={item.thumbnailUrl}
+                          alt={item.title}
+                          className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <FileIcon className="w-8 h-8 text-muted-foreground/50" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="font-mono text-xs text-foreground/80 line-clamp-2 leading-snug">{item.title}</p>
+                    <Badge variant="secondary" className="w-fit text-[10px] font-mono">
+                      {item.source}
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Album/File Result */}
         {result && (
           <section className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 py-4 border-b border-border/50">
