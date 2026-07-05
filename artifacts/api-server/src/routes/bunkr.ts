@@ -9,44 +9,58 @@ import { ResolveUrlBody, CreateJobBody, GetJobParams } from "@workspace/api-zod"
 import { logger } from "../lib/logger.js";
 import { pool } from "@workspace/db";
 
-// ─── balalbums.st search scraper ─────────────────────────────────────────────
+// ─── balbums.st search scraper ───────────────────────────────────────────────
+// Note: the site was previously known as "bunkr-albums.io" and redirects there
+// under the hood; the live domain is balbums.st (NOT "balalbums.st").
 
 interface SearchItem {
   title: string;
   url: string;
   thumbnailUrl: string | null;
+  totalFiles: number | null;
   source: string;
 }
 
 async function searchBalalbums(query: string, mode = "broad", page = 1): Promise<SearchItem[]> {
-  const searchUrl = `https://balalbums.st/?search=${encodeURIComponent(query)}&mode=${encodeURIComponent(mode)}&page=${page}`;
+  const searchUrl = `https://balbums.st/?search=${encodeURIComponent(query)}&mode=${encodeURIComponent(mode)}&page=${page}`;
   const html = await fetch(searchUrl, {
     headers: {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       Accept: "text/html",
     },
   }).then((r) => {
-    if (!r.ok) throw new Error(`balalbums.st returned ${r.status}`);
+    if (!r.ok) throw new Error(`balbums.st returned ${r.status}`);
     return r.text();
   });
 
   const $ = cheerio.load(html);
   const results: SearchItem[] = [];
 
-  $("a[href^='https://bunkr.'][target='_blank']").each((_, el) => {
-    const href = $(el).attr("href");
+  $("a.card[href^='https://bunkr.'][target='_blank']").each((_, el) => {
+    const $card = $(el);
+    const href = $card.attr("href");
     if (!href || !href.includes("/a/")) return;
 
-    const img = $(el).find("img.thumb-img, img[src]").first();
-    const thumb = img.attr("src") ?? null;
-    const alt = img.attr("alt") ?? "";
+    // Real thumbnail is the second <img> (first is a placeholder svg icon)
+    const thumb = $card.find("img.thumb-img").first().attr("src") ?? null;
+
     const title =
-      alt.trim() ||
-      $(el).find("[class*='title']").first().text().trim() ||
+      $card.find("h3").first().text().trim() ||
+      $card.find("img.thumb-img").first().attr("alt")?.trim() ||
       href.split("/a/").pop() ||
       "Unknown";
 
-    results.push({ title, url: href, thumbnailUrl: thumb && !thumb.includes("bunkr.svg") ? thumb : null, source: "balalbums.st" });
+    const filesText = $card.find("span").filter((_, s) => /files?$/i.test($(s).text().trim())).first().text().trim();
+    const filesMatch = filesText.match(/(\d+)/);
+    const totalFiles = filesMatch ? parseInt(filesMatch[1], 10) : null;
+
+    results.push({
+      title,
+      url: href,
+      thumbnailUrl: thumb,
+      totalFiles,
+      source: "balbums.st",
+    });
   });
 
   return results;
