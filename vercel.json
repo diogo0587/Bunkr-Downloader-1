@@ -1,16 +1,28 @@
 {
   "version": 2,
   "buildCommand": "pnpm install && pnpm --filter @workspace/bunkr-downloader run build",
-  "outputDirectory": "artifacts/bunkr-downloader/dist/public",
   "installCommand": "pnpm install",
   "functions": {
     "api/index.ts": {
       "maxDuration": 300,
-      "memory": 1024
+      "memory": 1024,
+      "runtime": "nodejs20.x"
+    },
+    "api/server.ts": {
+      "runtime": "nodejs20.x"
     }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
-    { "source": "/((?!api).*)", "destination": "/index.html" }
+    { "source": "/api/(.*)", "destination": "/api/index" }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/api/server"
+    }
   ]
 }
