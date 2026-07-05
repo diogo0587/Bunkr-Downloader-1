@@ -7,22 +7,10 @@
       "maxDuration": 300,
       "memory": 1024,
       "runtime": "nodejs20.x"
-    },
-    "api/server.ts": {
-      "runtime": "nodejs20.x"
     }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/index"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/api/server"
-    }
+    { "source": "/api/(.*)", "destination": "/api/index" },
+    { "source": "/((?!api).*)", "destination": "/artifacts/bunkr-downloader/dist/public/index.html" }
   ]
 }
