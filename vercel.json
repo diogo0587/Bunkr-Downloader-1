@@ -9,6 +9,11 @@
       "runtime": "nodejs20.x"
     }
   },
+  "static": {
+    "artifacts/bunkr-downloader/dist/public": {
+      "maxAge": 3600
+    }
+  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/((?!api).*)", "destination": "/artifacts/bunkr-downloader/dist/public/index.html" }
