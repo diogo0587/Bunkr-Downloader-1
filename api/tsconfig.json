@@ -9,5 +9,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["index.ts"]
+  "include": ["index.ts", "server.ts"]
 }

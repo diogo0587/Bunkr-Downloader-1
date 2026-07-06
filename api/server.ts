@@ -1,6 +1,6 @@
 import path from "path";
 import express from "express";
-import indexHandler from "./api/index";
+import indexHandler from "./index";
 
 const app = express();
 
