@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "pnpm install && pnpm --filter @workspace/bunkr-downloader run build",
+  "buildCommand": "pnpm build",
   "installCommand": "pnpm install",
   "functions": {
     "api/server.ts": {
