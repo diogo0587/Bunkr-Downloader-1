@@ -3,7 +3,7 @@
   "buildCommand": "pnpm install && pnpm --filter @workspace/bunkr-downloader run build",
   "installCommand": "pnpm install",
   "functions": {
-    "api.ts": {
+    "api/server.ts": {
       "runtime": "nodejs20.x",
       "memory": 1024,
       "maxDuration": 300
